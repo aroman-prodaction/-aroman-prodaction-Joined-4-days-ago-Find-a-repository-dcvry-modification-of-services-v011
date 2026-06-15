@@ -241,6 +241,16 @@ const availableServices = [
 
 const originalTotal = 71200;
 const saunaBasePrice = 16000;
+const saunaTimeSlots = ["11:00", "13:30", "18:30", "20:30"];
+const saunaDates = [
+  { day: "12", weekday: "Чт", value: "12 ноября 2026" },
+  { day: "13", weekday: "Пт", value: "13 ноября 2026" },
+  { day: "14", weekday: "Сб", value: "14 ноября 2026" },
+  { day: "15", weekday: "Вс", value: "15 ноября 2026" },
+  { day: "16", weekday: "Пн", value: "16 ноября 2026" },
+  { day: "17", weekday: "Вт", value: "17 ноября 2026" },
+  { day: "18", weekday: "Ср", value: "18 ноября 2026" },
+];
 const originalSnapshot = {
   dinnerQty: 2,
   concertQty: 1,
@@ -262,6 +272,7 @@ const originalSnapshot = {
     hours: 2,
     specialist: "Степан Родионович",
   },
+  saunaBookings: [],
 };
 
 function getSaunaHours(slot) {
@@ -270,6 +281,67 @@ function getSaunaHours(slot) {
 
 function getSaunaPrice(slot) {
   return saunaBasePrice + (getSaunaHours(slot) - 2) * 3000 + (slot.guests - 4) * 1000;
+}
+
+function getSaunaBookings(source) {
+  if (Array.isArray(source.saunaBookings)) return source.saunaBookings;
+  return source.saunaAdded && source.saunaSlot ? [{ ...source.saunaSlot }] : [];
+}
+
+function getSaunaBookingKey(booking) {
+  return `${booking?.date || ""}|${booking?.time || ""}`;
+}
+
+function getOccupiedSaunaKeys(state) {
+  const keys = new Set();
+  if (!state.saunaDeleted) {
+    keys.add(getSaunaBookingKey(originalSnapshot.saunaSlot));
+  }
+  getSaunaBookings(state).forEach((booking) => {
+    keys.add(getSaunaBookingKey(booking));
+  });
+  return keys;
+}
+
+function isSaunaSlotOccupied(state, date, time) {
+  return getOccupiedSaunaKeys(state).has(getSaunaBookingKey({ date, time }));
+}
+
+function getAvailableSaunaSlots(state, date) {
+  return saunaTimeSlots.filter((time) => !isSaunaSlotOccupied(state, date, time));
+}
+
+function getFirstAvailableSaunaSlot(state) {
+  const date = saunaDates.find((item) => getAvailableSaunaSlots(state, item.value).length > 0);
+  if (!date) return null;
+  return {
+    date: date.value,
+    time: getAvailableSaunaSlots(state, date.value)[0],
+    guests: 4,
+    hours: 2,
+    specialist: "Степан Родионович",
+  };
+}
+
+function sameSaunaBooking(a, b) {
+  return (
+    a?.date === b?.date &&
+    a?.time === b?.time &&
+    a?.guests === b?.guests &&
+    getSaunaHours(a || { hours: 2 }) === getSaunaHours(b || { hours: 2 }) &&
+    a?.specialist === b?.specialist
+  );
+}
+
+function sameSaunaBookings(current, baseline) {
+  const currentBookings = getSaunaBookings(current);
+  const baselineBookings = getSaunaBookings(baseline);
+  return (
+    currentBookings.length === baselineBookings.length &&
+    currentBookings.every((booking, index) =>
+      sameSaunaBooking(booking, baselineBookings[index]),
+    )
+  );
 }
 
 function getSpaBookings(source) {
@@ -293,17 +365,19 @@ function sameSpaBookings(current, baseline) {
 }
 
 function getSnapshot(state) {
+  const saunaBookings = getSaunaBookings(state).map((booking) => ({ ...booking }));
   const spaBookings = getSpaBookings(state).map((booking) => ({ ...booking }));
   return {
     dinnerQty: state.dinnerQty,
     concertQty: state.concertQty,
     petDeleted: state.petDeleted,
     saunaDeleted: state.saunaDeleted,
-    saunaAdded: state.saunaAdded,
+    saunaAdded: saunaBookings.length > 0,
     spaAdded: spaBookings.length > 0,
     spaSlot: { ...state.spaSlot },
     spaBookings,
     saunaSlot: { ...state.saunaSlot },
+    saunaBookings,
   };
 }
 
@@ -314,7 +388,10 @@ function calculateTotal(snapshot) {
   total += (snapshot.dinnerQty - originalSnapshot.dinnerQty) * 4000;
   total += (snapshot.concertQty - originalSnapshot.concertQty) * 3000;
   total += getSpaBookings(snapshot).length * 4500;
-  if (snapshot.saunaAdded) total += getSaunaPrice(snapshot.saunaSlot);
+  total += getSaunaBookings(snapshot).reduce(
+    (sum, booking) => sum + getSaunaPrice(booking),
+    0,
+  );
   return total;
 }
 
@@ -328,16 +405,9 @@ function snapshotsEqual(current, baseline) {
     current.spaAdded === baseline.spaAdded;
 
   if (!sameServices) return false;
+  if (!sameSaunaBookings(current, baseline)) return false;
   if (!sameSpaBookings(current, baseline)) return false;
-  if (!current.saunaAdded && !baseline.saunaAdded) return true;
-
-  return (
-    current.saunaSlot.date === baseline.saunaSlot.date &&
-    current.saunaSlot.time === baseline.saunaSlot.time &&
-    current.saunaSlot.guests === baseline.saunaSlot.guests &&
-    getSaunaHours(current.saunaSlot) === getSaunaHours(baseline.saunaSlot) &&
-    current.saunaSlot.specialist === baseline.saunaSlot.specialist
-  );
+  return true;
 }
 
 function applySnapshot(state, snapshot) {
@@ -352,6 +422,7 @@ function applySnapshot(state, snapshot) {
     spaSlot: { ...snapshot.spaSlot },
     spaBookings: getSpaBookings(snapshot).map((booking) => ({ ...booking })),
     saunaSlot: { ...snapshot.saunaSlot },
+    saunaBookings: getSaunaBookings(snapshot).map((booking) => ({ ...booking })),
     saunaReplaceSource: null,
     showDelete: null,
     showLeaveConfirm: null,
@@ -406,11 +477,23 @@ function createInitialState() {
       hours: 2,
       specialist: "Степан Родионович",
     },
+    saunaBookings: complete
+      ? [
+          {
+            date: "16 ноября 2026",
+            time: "20:30",
+            guests: 4,
+            hours: 2,
+            specialist: "Степан Родионович",
+          },
+        ]
+      : [],
     baseline: {
       ...originalSnapshot,
       spaSlot: { ...originalSnapshot.spaSlot },
       spaBookings: originalSnapshot.spaBookings.map((booking) => ({ ...booking })),
       saunaSlot: { ...originalSnapshot.saunaSlot },
+      saunaBookings: originalSnapshot.saunaBookings.map((booking) => ({ ...booking })),
     },
     log: [],
   };
@@ -473,7 +556,6 @@ function AppStateReducer(setState) {
             return {
               ...state,
               saunaDeleted: false,
-              saunaAdded: false,
               saunaReplaceSource: null,
               log,
             };
@@ -484,9 +566,11 @@ function AppStateReducer(setState) {
         case "set-concert":
           return { ...state, concertQty: payload.qty, log };
         case "open-sauna-config":
+          const nextSaunaSlot = getFirstAvailableSaunaSlot(state) || state.saunaSlot;
           return {
             ...state,
             showSaunaConfig: true,
+            saunaSlot: nextSaunaSlot,
             saunaReplaceSource: state.saunaReplaceSource || state.route,
             log,
           };
@@ -501,6 +585,27 @@ function AppStateReducer(setState) {
         case "close-service-info":
           return { ...state, serviceInfoId: null, log };
         case "select-sauna-slot":
+          if (payload.slot?.date) {
+            const availableSlots = getAvailableSaunaSlots(state, payload.slot.date);
+            if (availableSlots.length === 0) return { ...state, log };
+            return {
+              ...state,
+              saunaSlot: {
+                ...state.saunaSlot,
+                ...payload.slot,
+                time: availableSlots.includes(state.saunaSlot.time)
+                  ? state.saunaSlot.time
+                  : availableSlots[0],
+              },
+              log,
+            };
+          }
+          if (
+            payload.slot?.time &&
+            isSaunaSlotOccupied(state, state.saunaSlot.date, payload.slot.time)
+          ) {
+            return { ...state, log };
+          }
           return {
             ...state,
             saunaSlot: { ...state.saunaSlot, ...payload.slot },
@@ -513,18 +618,51 @@ function AppStateReducer(setState) {
             log,
           };
         case "add-sauna":
+          if (isSaunaSlotOccupied(state, state.saunaSlot.date, state.saunaSlot.time)) {
+            return { ...state, showSaunaConfig: false, log };
+          }
+          const saunaBooking = {
+            ...state.saunaSlot,
+            guests: state.saunaSlot.guests,
+            hours: getSaunaHours(state.saunaSlot),
+          };
+          const saunaBookings = [...getSaunaBookings(state), saunaBooking];
           return {
             ...state,
             saunaAdded: true,
-            saunaSlot: {
-              ...state.saunaSlot,
-              hours: getSaunaHours(state.saunaSlot),
-            },
+            saunaSlot: saunaBooking,
+            saunaBookings,
             showSaunaConfig: false,
             log,
           };
         case "remove-added-sauna":
-          return { ...state, saunaAdded: false, log };
+          const nextSaunaBookings =
+            payload.index === undefined
+              ? []
+              : getSaunaBookings(state).filter((_, index) => index !== payload.index);
+          return {
+            ...state,
+            saunaAdded: nextSaunaBookings.length > 0,
+            saunaBookings: nextSaunaBookings,
+            log,
+          };
+        case "restore-added-sauna": {
+          const restoredSaunaBookings = [
+            ...getSaunaBookings(state),
+            {
+              ...payload.booking,
+              guests: payload.booking.guests,
+              hours: getSaunaHours(payload.booking),
+            },
+          ];
+          return {
+            ...state,
+            saunaAdded: true,
+            saunaBookings: restoredSaunaBookings,
+            saunaSlot: { ...payload.booking, hours: getSaunaHours(payload.booking) },
+            log,
+          };
+        }
         case "add-spa":
           return {
             ...state,
@@ -727,7 +865,7 @@ function HotelSummary({ totals }) {
 
 function SideNav({ act, totals }) {
   const items = [
-    "Дата проживания",
+    "Даты проживания",
     "Номера и тарифы",
     "Услуги",
     "Контактное лицо",
@@ -761,15 +899,11 @@ function RoomServices({ state, act, mode }) {
         <p>2 взрослых</p>
       </div>
       <div className="room-body">
-        <h3>
-          {mode === "main"
-            ? "Включенные в стоимость тарифа"
-            : "Включенные в стоимость тарифа"}
-        </h3>
+        <h3>Уже включено</h3>
         <IncludedCarousel />
-        <h3>{mode === "main" ? "Купленные услуги" : "Купленные услуги"}</h3>
+        <h3>Добавлено вами</h3>
         <PurchasedList state={state} act={act} compact={mode === "main"} />
-        <h3>{mode === "main" ? "Доступные услуги" : "Доступные услуги"}</h3>
+        <h3>Сделайте проживание комфортнее</h3>
         <PromoCarousel act={act} />
       </div>
     </section>
@@ -853,13 +987,9 @@ function PurchasedList({ state, act }) {
         : state.concertQty !== baseline.concertQty
           ? "changed"
           : null;
-  const addedSaunaStatus = state.saunaAdded
-    ? baseline.saunaAdded
-      ? null
-      : "added"
-    : baseline.saunaAdded
-      ? "deleted"
-      : null;
+  const saunaBookings = getSaunaBookings(state);
+  const baselineSaunaBookings = getSaunaBookings(baseline);
+  const saunaRowsCount = Math.max(saunaBookings.length, baselineSaunaBookings.length);
   const spaBookings = getSpaBookings(state);
   const baselineSpaBookings = getSpaBookings(baseline);
   const spaRowsCount = Math.max(spaBookings.length, baselineSpaBookings.length);
@@ -962,35 +1092,47 @@ function PurchasedList({ state, act }) {
           }
         />
       )}
-      {(state.saunaAdded || baseline.saunaAdded) && (
-        <PurchasedRow
-          id="sauna-added"
-          title="Баня с пармастером"
-          image={images.sauna}
-          details={`${state.saunaSlot.date} • ${state.saunaSlot.time} • ${state.saunaSlot.guests} гостя • ${getSaunaHours(state.saunaSlot)} часа`}
-          price={getSaunaPrice(state.saunaSlot)}
-          status={addedSaunaStatus}
-          action={
-            state.saunaAdded ? (
-              <button
-                className="icon-button"
-                onClick={() => act("remove-added-sauna")}
-                aria-label="Удалить бронь бани"
-              >
-                <Trash2 size={22} />
-              </button>
-            ) : (
-              <button
-                className="icon-button"
-                onClick={() => act("open-sauna-config")}
-                aria-label="Вернуть баню"
-              >
-                <RotateCcw size={22} />
-              </button>
-            )
-          }
-        />
-      )}
+      {Array.from({ length: saunaRowsCount }).map((_, index) => {
+        const booking = saunaBookings[index];
+        const baselineBooking = baselineSaunaBookings[index];
+        const visibleBooking = booking || baselineBooking;
+        const status = booking
+          ? baselineBooking && sameSaunaBooking(booking, baselineBooking)
+            ? null
+            : "added"
+          : "deleted";
+
+        return (
+          <PurchasedRow
+            id={`sauna-added-${index}`}
+            key={`sauna-added-${index}`}
+            title="Баня с пармастером"
+            image={images.sauna}
+            details={`${visibleBooking.date} • ${visibleBooking.time} • ${visibleBooking.guests} гостя • ${getSaunaHours(visibleBooking)} часа`}
+            price={getSaunaPrice(visibleBooking)}
+            status={status}
+            action={
+              booking ? (
+                <button
+                  className="icon-button"
+                  onClick={() => act("remove-added-sauna", { index })}
+                  aria-label="Удалить бронь бани"
+                >
+                  <Trash2 size={22} />
+                </button>
+              ) : (
+                <button
+                  className="icon-button"
+                  onClick={() => act("restore-added-sauna", { booking: baselineBooking })}
+                  aria-label="Вернуть баню"
+                >
+                  <RotateCcw size={22} />
+                </button>
+              )
+            }
+          />
+        );
+      })}
       {Array.from({ length: spaRowsCount }).map((_, index) => {
         const booking = spaBookings[index];
         const baselineBooking = baselineSpaBookings[index];
@@ -1232,7 +1374,21 @@ function ServiceCard({ service, state, act }) {
   const isSpa = service.id === "spa";
   const activeSauna = isSauna && !state.saunaDeleted;
   const deletedSauna = isSauna && state.saunaDeleted;
-  const addedSauna = isSauna && state.saunaAdded;
+  const saunaBookings = getSaunaBookings(state);
+  const addedSauna = isSauna && saunaBookings.length > 0;
+  const saunaRows = isSauna
+    ? [
+        ...(activeSauna
+          ? [{ ...originalSnapshot.saunaSlot, source: "original", price: 16000 }]
+          : []),
+        ...saunaBookings.map((booking, index) => ({
+          ...booking,
+          source: "added",
+          index,
+          price: getSaunaPrice(booking),
+        })),
+      ]
+    : [];
   const spaBookings = getSpaBookings(state);
   const activeSpa = isSpa && spaBookings.length > 0;
   const simpleQty = isDinner
@@ -1248,20 +1404,20 @@ function ServiceCard({ service, state, act }) {
     (isConcert && state.concertQty > 0) ||
     (isPet && !state.petDeleted) ||
     activeSpa;
-  const hourlySelected = (isSauna && (activeSauna || addedSauna)) || activeSpa;
+  const hourlySelected = (isSauna && saunaRows.length > 0) || activeSpa;
   const hourlyFooterTitle = isSpa
     ? spaBookings.length > 1
       ? `${spaBookings.length} записи • 1 гость • 2 часа`
       : "1 гость • 2 часа"
     : addedSauna
-      ? `${state.saunaSlot.guests} гостя • ${getSaunaHours(state.saunaSlot)} часа`
+      ? `${saunaBookings[0]?.guests || state.saunaSlot.guests} гостя • ${getSaunaHours(saunaBookings[0] || state.saunaSlot)} часа`
       : "4 гостя • 2 часа";
   const hourlyFooterDetails = isSpa
     ? spaBookings.length > 1
       ? `${spaBookings[0].date} • ${spaBookings[0].time} и еще ${spaBookings.length - 1}`
       : `${spaBookings[0]?.date || state.spaSlot.date} • ${spaBookings[0]?.time || state.spaSlot.time}`
     : addedSauna
-      ? `${state.saunaSlot.date} • ${state.saunaSlot.time} • ${state.saunaSlot.specialist}`
+      ? `${saunaBookings[0]?.date || state.saunaSlot.date} • ${saunaBookings[0]?.time || state.saunaSlot.time} • ${saunaBookings[0]?.specialist || state.saunaSlot.specialist}`
       : "16 ноября 2026 • 18:30 • Степан Родионович";
   const footerText =
     isDinner || isConcert
@@ -1339,16 +1495,49 @@ function ServiceCard({ service, state, act }) {
         )}
       </div>
       <div className={`service-footer ${service.included ? "included-footer" : ""}`}>
-        <span>
-          {hourlySelected ? (
-            <>
-              <b>{hourlyFooterTitle}</b>
-              <small>{hourlyFooterDetails}</small>
-            </>
-          ) : (
-            footerText
-          )}
-        </span>
+        {isSauna && hourlySelected ? (
+          <div className="hourly-booking-list">
+            {saunaRows.map((booking) => (
+              <div
+                className="hourly-booking-row"
+                key={`${booking.source}-${booking.date}-${booking.time}-${booking.index ?? "base"}`}
+              >
+                <span>
+                  <b>
+                    {booking.guests} гостя • {getSaunaHours(booking)} часа
+                  </b>
+                  <small>
+                    {booking.date} • {booking.time} • {booking.specialist}
+                  </small>
+                </span>
+                <strong>{money.format(booking.price)} ₽</strong>
+                <button
+                  className="icon-button filled"
+                  onClick={() =>
+                    booking.source === "original"
+                      ? act("confirm-delete", { serviceId: "sauna" })
+                      : act("remove-added-sauna", { index: booking.index })
+                  }
+                  aria-label="Удалить бронь бани"
+                >
+                  <Trash2 size={18} />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <span>
+            {hourlySelected ? (
+              <>
+                <b>{hourlyFooterTitle}</b>
+                <small>{hourlyFooterDetails}</small>
+              </>
+            ) : (
+              footerText
+            )}
+          </span>
+        )}
+        {!(isSauna && hourlySelected) && (
         <div className="service-price-action">
           {service.included ? (
             <span className="included-badge">
@@ -1423,7 +1612,7 @@ function ServiceCard({ service, state, act }) {
             </>
           ) : addedSauna ? (
             <>
-              <span>{money.format(getSaunaPrice(state.saunaSlot))} ₽</span>
+              <span>{money.format(saunaBookings.reduce((sum, booking) => sum + getSaunaPrice(booking), 0))} ₽</span>
               <button
                 className="icon-button filled"
                 onClick={() => act("remove-added-sauna")}
@@ -1463,6 +1652,7 @@ function ServiceCard({ service, state, act }) {
             </>
           )}
         </div>
+        )}
         {hourlySelected && (
           <button
             className="more-service footer-more-service"
@@ -1606,16 +1796,7 @@ function LeaveChangesModal({ state, act, totals }) {
 }
 
 function SaunaConfig({ state, act }) {
-  const slots = ["11:00", "13:30", "18:30", "20:30"];
-  const dates = [
-    { day: "12", weekday: "Чт", value: "12 ноября 2026" },
-    { day: "13", weekday: "Пт", value: "13 ноября 2026" },
-    { day: "14", weekday: "Сб", value: "14 ноября 2026" },
-    { day: "15", weekday: "Вс", value: "15 ноября 2026" },
-    { day: "16", weekday: "Пн", value: "16 ноября 2026" },
-    { day: "17", weekday: "Вт", value: "17 ноября 2026" },
-    { day: "18", weekday: "Ср", value: "18 ноября 2026" },
-  ];
+  const slots = getAvailableSaunaSlots(state, state.saunaSlot.date);
   const saunaPrice = getSaunaPrice(state.saunaSlot);
   return (
     <div className="overlay panel-overlay">
@@ -1634,20 +1815,24 @@ function SaunaConfig({ state, act }) {
             <span>Ноябрь 2026</span>
           </div>
           <div className="calendar-strip">
-            {dates.map((date) => (
-              <button
-                key={date.value}
-                className={date.value === state.saunaSlot.date ? "active" : ""}
-                onClick={() =>
-                  act("select-sauna-slot", {
-                    slot: { date: date.value },
-                  })
-                }
-              >
-                <span>{date.weekday}</span>
-                <b>{date.day}</b>
-              </button>
-            ))}
+            {saunaDates.map((date) => {
+              const disabled = getAvailableSaunaSlots(state, date.value).length === 0;
+              return (
+                <button
+                  key={date.value}
+                  className={date.value === state.saunaSlot.date ? "active" : ""}
+                  disabled={disabled}
+                  onClick={() =>
+                    act("select-sauna-slot", {
+                      slot: { date: date.value },
+                    })
+                  }
+                >
+                  <span>{date.weekday}</span>
+                  <b>{date.day}</b>
+                </button>
+              );
+            })}
           </div>
           <div className="time-slots">
             {slots.map((slot) => (
@@ -1663,6 +1848,9 @@ function SaunaConfig({ state, act }) {
                 {slot}
               </button>
             ))}
+            {slots.length === 0 && (
+              <span className="empty-slots">Нет свободного времени</span>
+            )}
           </div>
           <h3>Специалист</h3>
           <div className="specialists">
@@ -1809,6 +1997,11 @@ function ServicePreview({ service }) {
 
 function ConfirmChanges({ state, act, totals }) {
   const baseline = state.baseline || originalSnapshot;
+  const saunaBookings = getSaunaBookings(state);
+  const baselineSaunaBookings = getSaunaBookings(baseline);
+  const saunaRowsCount = Math.max(saunaBookings.length, baselineSaunaBookings.length);
+  const saunaAddedCount = Math.max(0, saunaBookings.length - baselineSaunaBookings.length);
+  const saunaDeletedCount = Math.max(0, baselineSaunaBookings.length - saunaBookings.length);
   const spaBookings = getSpaBookings(state);
   const baselineSpaBookings = getSpaBookings(baseline);
   const spaRowsCount = Math.max(spaBookings.length, baselineSpaBookings.length);
@@ -1819,7 +2012,8 @@ function ConfirmChanges({ state, act, totals }) {
     state.saunaDeleted && !baseline.saunaDeleted && "Баня с пармастером",
     state.dinnerQty === 0 && baseline.dinnerQty > 0 && "Романтический ужин",
     state.concertQty === 0 && baseline.concertQty > 0 && "Концерт Las Palmas на террасе Club Nevarest",
-    !state.saunaAdded && baseline.saunaAdded && "Баня с пармастером",
+    saunaDeletedCount > 0 &&
+      `Баня с пармастером${saunaDeletedCount > 1 ? ` (${saunaDeletedCount})` : ""}`,
     spaDeletedCount > 0 &&
       `Авторская СПА программа "Турецкий шарм"${spaDeletedCount > 1 ? ` (${spaDeletedCount})` : ""}`,
   ].filter(Boolean);
@@ -1838,7 +2032,8 @@ function ConfirmChanges({ state, act, totals }) {
     !state.saunaDeleted && baseline.saunaDeleted && "Баня с пармастером",
     state.dinnerQty > 0 && baseline.dinnerQty === 0 && "Романтический ужин",
     state.concertQty > 0 && baseline.concertQty === 0 && "Концерт Las Palmas на террасе Club Nevarest",
-    state.saunaAdded && !baseline.saunaAdded && "Баня с пармастером",
+    saunaAddedCount > 0 &&
+      `Баня с пармастером${saunaAddedCount > 1 ? ` (${saunaAddedCount})` : ""}`,
     spaAddedCount > 0 &&
       `Авторская СПА программа "Турецкий шарм"${spaAddedCount > 1 ? ` (${spaAddedCount})` : ""}`,
   ].filter(Boolean);
@@ -1933,14 +2128,28 @@ function ConfirmChanges({ state, act, totals }) {
                 }
               />
             )}
-            {state.saunaAdded !== baseline.saunaAdded && (
-              <TableRow
-                status={state.saunaAdded ? "added" : "deleted"}
-                title="Баня с пармастером"
-                meta={`${state.saunaSlot.date} • ${state.saunaSlot.time} • ${state.saunaSlot.guests} гостя • ${getSaunaHours(state.saunaSlot)} часа`}
-                price={`${money.format(getSaunaPrice(state.saunaSlot))} ₽`}
-              />
-            )}
+            {Array.from({ length: saunaRowsCount }).map((_, index) => {
+              const booking = saunaBookings[index];
+              const baselineBooking = baselineSaunaBookings[index];
+              const visibleBooking = booking || baselineBooking;
+              const status = booking
+                ? baselineBooking && sameSaunaBooking(booking, baselineBooking)
+                  ? null
+                  : "added"
+                : "deleted";
+
+              if (!status) return null;
+
+              return (
+                <TableRow
+                  key={`sauna-confirm-${index}`}
+                  status={status}
+                  title="Баня с пармастером"
+                  meta={`${visibleBooking.date} • ${visibleBooking.time} • ${visibleBooking.guests} гостя • ${getSaunaHours(visibleBooking)} часа`}
+                  price={`${money.format(getSaunaPrice(visibleBooking))} ₽`}
+                />
+              );
+            })}
             {Array.from({ length: spaRowsCount }).map((_, index) => {
               const booking = spaBookings[index];
               const baselineBooking = baselineSpaBookings[index];

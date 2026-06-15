@@ -841,6 +841,45 @@ img {
   min-width: 0;
 }
 
+.hourly-booking-list {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.hourly-booking-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto 40px;
+  gap: 12px;
+  align-items: center;
+}
+
+.hourly-booking-row span b,
+.hourly-booking-row span small {
+  display: block;
+}
+
+.hourly-booking-row span b {
+  color: var(--text);
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 20px;
+}
+
+.hourly-booking-row span small {
+  margin-top: 2px;
+  color: var(--secondary);
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.hourly-booking-row strong {
+  font-size: 14px;
+  font-weight: 400;
+  white-space: nowrap;
+}
+
 .service-card.hourly-selected .booked-inline {
   display: none;
 }
@@ -1130,6 +1169,15 @@ img {
   color: #ffffff;
 }
 
+.calendar-strip button:disabled {
+  background: #f2f4f8;
+  color: var(--tertiary);
+}
+
+.calendar-strip button:disabled span {
+  color: var(--tertiary);
+}
+
 .time-slots {
   display: flex;
   flex-wrap: nowrap;
@@ -1151,6 +1199,12 @@ img {
 
 .time-slots .active {
   color: #ffffff;
+}
+
+.empty-slots {
+  color: var(--secondary);
+  font-size: 13px;
+  line-height: 36px;
 }
 
 .specialists {
@@ -1678,6 +1732,25 @@ img {
 
   .service-card.hourly-selected .service-price-action {
     display: contents;
+  }
+
+  .hourly-booking-list {
+    grid-column: 1 / -1;
+  }
+
+  .hourly-booking-row {
+    grid-template-columns: minmax(0, 1fr) auto 32px;
+    gap: 8px;
+  }
+
+  .hourly-booking-row span b {
+    font-size: 16px;
+    line-height: 20px;
+  }
+
+  .hourly-booking-row span small {
+    font-size: 12px;
+    line-height: 18px;
   }
 
   .service-footer > span {
