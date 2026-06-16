@@ -1245,8 +1245,8 @@ function PromoCarousel({ act }) {
   const rowRef = useRef(null);
   const carousel = useCarouselControls(rowRef);
   const promo = [
-    availableServices.find((item) => item.id === "sauna-wood"),
     availableServices.find((item) => item.id === "massage"),
+    availableServices.find((item) => item.id === "sauna-wood"),
     availableServices.find((item) => item.id === "boat"),
   ];
   return (
@@ -1272,6 +1272,13 @@ function PromoCarousel({ act }) {
               </p>
             </article>
           ))}
+          <button
+            className="promo-cta-card"
+            onClick={() => act("go", { route: "services" })}
+          >
+            <span>Смотреть остальные услуги</span>
+            <ChevronRight size={20} />
+          </button>
         </div>
         <button
           className="round-button carousel-prev"
@@ -1296,7 +1303,7 @@ function PromoCarousel({ act }) {
         className="primary-button full"
         onClick={() => act("go", { route: "services" })}
       >
-        Перейти <ChevronRight size={20} />
+        Выбрать услуги <ChevronRight size={20} />
       </button>
     </>
   );
